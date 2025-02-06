@@ -1,0 +1,118 @@
+include:
+  - project: '/lib/ci-templates'
+    file: 'Terraform/Base.gitlab-ci.yml'
+
+variables:
+  PRODUCT: feed
+  SERVICE: instance-scheduler
+
+stages:
+  - build
+  - test
+  - plan
+  - deploy_uat
+  - deploy_prod
+
+zip_lambda:
+  image: alpine:latest
+  stage: build
+  tags:
+    - uat
+  script:
+    - apk add --no-cache zip bash
+    - cd $CI_PROJECT_DIR/lambda_files/lambda_ec2_start_stop
+    - zip -r lambda_ec2_start_stop.zip .
+    - cd $CI_PROJECT_DIR/lambda_files/lambda_event_creator
+    - zip -r lambda_event_creator.zip .
+  artifacts:
+    paths:
+      - lambda_files/lambda_ec2_start_stop/lambda_ec2_start_stop.zip
+      - lambda_files/lambda_event_creator/lambda_event_creator.zip
+  when: always
+
+validate:
+  stage: test
+  tags:
+    - uat
+  extends:
+    - .terraform:validate
+  when: always
+  dependencies:
+    - zip_lambda
+  needs:
+    - zip_lambda
+
+plan_uat:
+  stage: plan
+  tags:
+    - uat
+  extends:
+    - .terraform:plan
+  environment: uat
+  when: always
+  dependencies:
+    - zip_lambda
+  needs:
+    - zip_lambda
+
+apply_uat:
+  stage: deploy_uat
+  tags:
+    - uat
+  extends:
+    - .terraform:apply
+  environment: uat
+  dependencies:
+    - plan_uat
+    - zip_lambda
+  needs:
+    - plan_uat
+    - zip_lambda
+  when: manual
+
+destroy_uat:
+  stage: deploy_uat
+  tags:
+    - uat
+  extends:
+    - .terraform:destroy
+  environment: uat
+  when: manual
+
+# Production Jobs
+plan_prod:
+  stage: plan
+  tags:
+    - uat
+  extends:
+    - .terraform:plan
+  environment: prod
+  when: always
+  dependencies:
+    - zip_lambda
+  needs:
+    - zip_lambda
+
+apply_prod:
+  stage: deploy_prod
+  tags:
+    - prod
+  extends:
+    - .terraform:apply
+  environment: prod
+  dependencies:
+    - plan_prod
+    - zip_lambda
+  needs:
+    - plan_prod
+    - zip_lambda
+  when: manual
+
+destroy_prod:
+  stage: deploy_prod
+  tags:
+    - prod
+  extends:
+    - .terraform:destroy
+  environment: prod
+  when: manual
